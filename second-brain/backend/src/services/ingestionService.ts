@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { google, gmail_v1 } from "googleapis";
 import { WebClient } from "@slack/web-api";
-import { CHROMA_DOCUMENT_COLLECTION, getChromaClient } from "../lib/chromaClient";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getOrCreateDocumentCollection } from "../lib/chromaClient";
+import { getChatModel, getEmbeddingModel } from "../lib/geminiClient";
 import { detectConflicts } from "./conflictService";
 import { extractCommitments } from "./commitmentService";
 import DocumentModel from "../models/Document";
@@ -46,10 +46,24 @@ export async function fetchGmailMessages(userId: string) {
     return [];
   }
 
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: user.googleAccessToken });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+  oauth2Client.setCredentials({
+    access_token: user.googleAccessToken,
+    refresh_token: user.googleRefreshToken
+  });
+  oauth2Client.on("tokens", async (newTokens) => {
+    if (newTokens.access_token) {
+      await User.findByIdAndUpdate(userId, {
+        $set: { googleAccessToken: newTokens.access_token }
+      });
+    }
+  });
 
-  const gmail = google.gmail({ version: "v1", auth });
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
   const listResponse = await gmail.users.messages.list({
     userId: "me",
     maxResults: 50
@@ -203,36 +217,39 @@ export async function enrichDocument(
 }
 
 async function getEnrichment(content: string) {
-  const completion = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: ENRICHMENT_SYSTEM_PROMPT
-      },
+  const model = getChatModel();
+  const result = await model.generateContent({
+    contents: [
       {
         role: "user",
-        content
+        parts: [
+          {
+            text: `${ENRICHMENT_SYSTEM_PROMPT}\n\n${content}`
+          }
+        ]
       }
-    ]
+    ],
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
   });
-  const rawJson = completion.choices[0]?.message.content;
+  const rawJson = result.response.text();
 
   if (!rawJson) {
     return {};
   }
 
-  return JSON.parse(rawJson) as EnrichedPayload;
+  try {
+    return JSON.parse(rawJson) as EnrichedPayload;
+  } catch {
+    return {};
+  }
 }
 
 async function createEmbedding(content: string) {
-  const response = await getOpenAIClient().embeddings.create({
-    model: "text-embedding-ada-002",
-    input: content
-  });
-
-  return response.data[0]?.embedding ?? [];
+  const model = getEmbeddingModel();
+  const result = await model.embedContent(content);
+  return result.embedding.values ?? [];
 }
 
 async function saveEmbeddingToChroma({
@@ -254,10 +271,7 @@ async function saveEmbeddingToChroma({
     return;
   }
 
-  const collection = await getChromaClient().getOrCreateCollection({
-    name: CHROMA_DOCUMENT_COLLECTION,
-    embeddingFunction: null
-  });
+  const collection = await getOrCreateDocumentCollection();
 
   await collection.add({
     ids: [documentId],

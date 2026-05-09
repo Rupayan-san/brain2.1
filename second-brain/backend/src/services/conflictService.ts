@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { CHROMA_DOCUMENT_COLLECTION, getChromaClient } from "../lib/chromaClient";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getChatModel } from "../lib/geminiClient";
 import DocumentModel, { DocumentDocument } from "../models/Document";
 
 interface ConflictResponse {
@@ -58,28 +58,28 @@ export async function detectConflicts(newDoc: DocumentDocument) {
 }
 
 async function compareDocuments(firstText: string, secondText: string) {
-  const completion = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "Do these two texts contradict each other on any fact? Reply JSON: {conflict: boolean, explanation: string}"
-      },
-      {
-        role: "user",
-        content: `Text A:\n${firstText}\n\nText B:\n${secondText}`
-      }
-    ]
-  });
-  const rawJson = completion.choices[0]?.message.content;
+  const model = getChatModel();
+  const result = await model.generateContent(
+    [
+      "Do these two texts contradict each other on any fact?",
+      "Reply JSON: {conflict: boolean, explanation: string}",
+      "",
+      `Text A:\n${firstText}`,
+      "",
+      `Text B:\n${secondText}`
+    ].join("\n")
+  );
+  const rawJson = result.response.text();
 
   if (!rawJson) {
     return { conflict: false, explanation: "" };
   }
 
-  return JSON.parse(rawJson) as ConflictResponse;
+  try {
+    return JSON.parse(rawJson) as ConflictResponse;
+  } catch {
+    return { conflict: false, explanation: "" };
+  }
 }
 
 async function flagConflict(

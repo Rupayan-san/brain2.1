@@ -1,6 +1,6 @@
 import Digest from "../models/Digest";
 import DocumentModel from "../models/Document";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getChatModel } from "../lib/geminiClient";
 
 export async function dailyDigest(userId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -28,20 +28,11 @@ async function createDigest(
   const sourceText = documents
     .map((document) => `- ${document.summary || document.rawContent}`)
     .join("\n");
-  const completion = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: prompt
-      },
-      {
-        role: "user",
-        content: sourceText || "No documents were found for this period."
-      }
-    ]
-  });
-  const narrative = completion.choices[0]?.message.content ?? "";
+  const model = getChatModel();
+  const result = await model.generateContent(
+    `${prompt}\n\nSummaries:\n${sourceText || "No documents were found for this period."}`
+  );
+  const narrative = result.response.text();
 
   return Digest.create({
     userId,

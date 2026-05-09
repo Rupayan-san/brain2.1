@@ -1,7 +1,6 @@
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions/completions";
 import { Types } from "mongoose";
-import { CHROMA_DOCUMENT_COLLECTION, getChromaClient } from "../lib/chromaClient";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getOrCreateDocumentCollection } from "../lib/chromaClient";
+import { getChatModel, getEmbeddingModel } from "../lib/geminiClient";
 import { emitToUser } from "../lib/socket";
 import ChatMessage from "../models/ChatMessage";
 import DocumentModel, { DocumentDocument } from "../models/Document";
@@ -16,20 +15,15 @@ export interface RagChatOptions {
 }
 
 export async function semanticSearch(query: string, userId: string) {
-  const embeddingResponse = await getOpenAIClient().embeddings.create({
-    model: "text-embedding-ada-002",
-    input: query
-  });
-  const embedding = embeddingResponse.data[0]?.embedding;
+  const model = getEmbeddingModel();
+  const embeddingResult = await model.embedContent(query);
+  const embedding = embeddingResult.embedding.values;
 
-  if (!embedding) {
+  if (!embedding || embedding.length === 0) {
     return [];
   }
 
-  const collection = await getChromaClient().getOrCreateCollection({
-    name: CHROMA_DOCUMENT_COLLECTION,
-    embeddingFunction: null
-  });
+  const collection = await getOrCreateDocumentCollection();
   const result = await collection.query({
     queryEmbeddings: [embedding],
     nResults: 10,
@@ -68,7 +62,8 @@ export async function ragChat(
 ) {
   const relevantDocuments = await semanticSearch(query, userId);
   const sourceIds = relevantDocuments.map((document) => document._id);
-  const messages = buildMessages(query, chatHistory, relevantDocuments);
+  const model = getChatModel();
+  const prompt = buildGeminiPrompt(query, chatHistory, relevantDocuments);
 
   await ChatMessage.create({
     userId,
@@ -77,19 +72,15 @@ export async function ragChat(
     sources: sourceIds
   });
 
-  const stream = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages,
-    stream: true
-  });
-  let assistantResponse = "";
-
   emitToUser(userId, "chat:stream:start", {
     sourceDocumentIds: sourceIds.map((sourceId) => sourceId.toString())
   });
 
-  for await (const chunk of stream) {
-    const token = chunk.choices[0]?.delta?.content;
+  const streamResult = await model.generateContentStream(prompt);
+  let assistantResponse = "";
+
+  for await (const chunk of streamResult.stream) {
+    const token = chunk.text();
 
     if (!token) {
       continue;
@@ -119,41 +110,38 @@ export async function ragChat(
   };
 }
 
-function buildMessages(
+function buildGeminiPrompt(
   query: string,
   chatHistory: ChatHistoryMessage[],
   relevantDocuments: DocumentDocument[]
-): ChatCompletionMessageParam[] {
-  const recentHistory = chatHistory.slice(-10);
+): string {
   const context = relevantDocuments
-    .map((document, index) => {
-      return [
+    .map((document, index) =>
+      [
         `Source ${index + 1}`,
         `Document ID: ${document._id.toString()}`,
         `Source type: ${document.source}`,
         `Summary: ${document.summary || "No summary available."}`,
         `Text: ${document.rawContent}`
-      ].join("\n");
-    })
+      ].join("\n")
+    )
     .join("\n\n");
+  const history = chatHistory
+    .slice(-10)
+    .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
+    .join("\n");
 
   return [
-    {
-      role: "system",
-      content:
-        "You are the user's second brain assistant. Answer questions using only the provided context from their emails and Slack messages. Always cite which source you used."
-    },
-    ...recentHistory.map((message) => ({
-      role: message.role,
-      content: message.content
-    })),
-    {
-      role: "system",
-      content: `Retrieved context chunks:\n${context || "No relevant context was found."}`
-    },
-    {
-      role: "user",
-      content: query
-    }
-  ];
+    "You are the user's second brain assistant.",
+    "Answer questions using only the provided context from their emails and Slack messages.",
+    "Always cite which source you used.",
+    "",
+    "Retrieved context:",
+    context || "No relevant context was found.",
+    "",
+    "Conversation history:",
+    history,
+    "",
+    `User: ${query}`
+  ].join("\n");
 }

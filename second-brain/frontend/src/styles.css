@@ -700,6 +700,53 @@ a {
   margin: 6px 0 0;
 }
 
+.error-text {
+  margin: 0;
+  color: #9b3d25;
+  font-weight: 700;
+}
+
+.toast-success {
+  width: fit-content;
+  padding: 10px 12px;
+  border: 1px solid #b7d9c8;
+  border-radius: 8px;
+  color: #225f4d;
+  background: #e2f2e9;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.digest-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 18px;
+}
+
+.timeline-dot {
+  z-index: 1;
+  align-self: start;
+  width: 16px;
+  height: 16px;
+  margin: 10px;
+  border: 3px solid #fffdf7;
+  border-radius: 999px;
+  background: #6d675e;
+  box-shadow: 0 0 0 1px #d7d0c2;
+}
+
+.timeline-dot-gmail {
+  background: #2f75d6;
+}
+
+.timeline-dot-slack {
+  background: #7b4ec8;
+}
+
+.graph-document-preview {
+  margin-top: 16px;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;

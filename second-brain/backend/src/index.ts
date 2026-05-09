@@ -10,6 +10,11 @@ import "./cron/ingestionCron";
 import { setSocketServer } from "./lib/socket";
 import authRoutes from "./routes/auth";
 import chatRoutes from "./routes/chat";
+import commitmentRoutes from "./routes/commitments";
+import digestRoutes from "./routes/digest";
+import documentRoutes from "./routes/documents";
+import graphRoutes from "./routes/graph";
+import ingestRoutes from "./routes/ingest";
 import { verifyAuthToken } from "./middleware/auth";
 
 dotenv.config();
@@ -34,6 +39,11 @@ app.get("/health", (_req, res) => {
 
 app.use("/auth", authRoutes);
 app.use("/", chatRoutes);
+app.use("/", digestRoutes);
+app.use("/", commitmentRoutes);
+app.use("/", documentRoutes);
+app.use("/", graphRoutes);
+app.use("/", ingestRoutes);
 
 io.on("connection", (socket) => {
   socket.emit("connected", { socketId: socket.id });

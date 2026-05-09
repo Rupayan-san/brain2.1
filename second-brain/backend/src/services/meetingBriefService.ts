@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
-import { CHROMA_DOCUMENT_COLLECTION, getChromaClient } from "../lib/chromaClient";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getOrCreateDocumentCollection } from "../lib/chromaClient";
+import { getChatModel, getEmbeddingModel } from "../lib/geminiClient";
 import DocumentModel from "../models/Document";
 import MeetingBrief from "../models/MeetingBrief";
 
@@ -24,21 +24,19 @@ export async function generateBrief(
   const context = relevantDocs
     .map((document) => `Summary: ${document.summary}\nText: ${document.rawContent}`)
     .join("\n\n");
-  const completion = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content:
-          "Generate a concise meeting pre-brief covering: past decisions, open action items, last conversations with attendees."
-      },
-      {
-        role: "user",
-        content: `Meeting: ${meetingTitle}\nAttendees: ${attendees.join(", ")}\nTime: ${meetingTime.toISOString()}\n\nRelevant documents:\n${context || "No relevant documents found."}`
-      }
-    ]
-  });
-  const briefContent = completion.choices[0]?.message.content ?? "";
+  const model = getChatModel();
+  const result = await model.generateContent(
+    [
+      "Generate a concise meeting pre-brief covering: past decisions, open action items, last conversations with attendees.",
+      "",
+      `Meeting: ${meetingTitle}`,
+      `Attendees: ${attendees.join(", ")}`,
+      `Time: ${meetingTime.toISOString()}`,
+      "",
+      `Relevant documents:\n${context || "No relevant documents found."}`
+    ].join("\n")
+  );
+  const briefContent = result.response.text();
 
   return MeetingBrief.create({
     userId,
@@ -51,20 +49,15 @@ export async function generateBrief(
 }
 
 async function querySemanticDocumentIds(userId: string, meetingTitle: string) {
-  const embeddingResponse = await getOpenAIClient().embeddings.create({
-    model: "text-embedding-ada-002",
-    input: meetingTitle
-  });
-  const embedding = embeddingResponse.data[0]?.embedding;
+  const embeddingModel = getEmbeddingModel();
+  const embeddingResponse = await embeddingModel.embedContent(meetingTitle);
+  const embedding = embeddingResponse.embedding.values;
 
-  if (!embedding) {
+  if (!embedding || embedding.length === 0) {
     return [];
   }
 
-  const collection = await getChromaClient().getOrCreateCollection({
-    name: CHROMA_DOCUMENT_COLLECTION,
-    embeddingFunction: null
-  });
+  const collection = await getOrCreateDocumentCollection();
   const result = await collection.query({
     queryEmbeddings: [embedding],
     nResults: 10,

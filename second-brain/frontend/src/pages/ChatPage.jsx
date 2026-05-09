@@ -8,23 +8,22 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const streamingIdRef = useRef(null);
   const sawSocketTokenRef = useRef(false);
 
   useEffect(() => {
     async function loadHistory() {
       try {
+        setLoading(true);
+        setError("");
         const response = await api.get("/chat/history");
         setMessages(response.data.history ?? []);
       } catch {
-        setMessages([
-          {
-            _id: "welcome",
-            role: "assistant",
-            content: "Ask me about your emails, Slack messages, commitments, or meeting context.",
-            sources: []
-          }
-        ]);
+        setError("Unable to load chat history.");
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -39,11 +38,13 @@ export default function ChatPage() {
       appendToStreamingMessage(token);
     };
 
-    const handleEnd = ({ sourceDocumentIds = [] }) => {
+    const handleEnd = async ({ sourceDocumentIds = [] }) => {
+      const sources = await loadSourceDocuments(sourceDocumentIds);
+
       setMessages((current) =>
         current.map((message) =>
           message._id === streamingIdRef.current
-            ? { ...message, sources: sourceDocumentIds.map((id) => ({ _id: id })) }
+            ? { ...message, sources }
             : message
         )
       );
@@ -86,6 +87,7 @@ export default function ChatPage() {
     ]);
 
     try {
+      setError("");
       const response = await fetch(`${API_BASE_URL}/chat/message`, {
         method: "POST",
         headers: {
@@ -117,6 +119,7 @@ export default function ChatPage() {
         }
       }
     } catch {
+      setError("Unable to send chat message.");
       appendToStreamingMessage("I could not reach the backend chat service.");
       setIsStreaming(false);
     }
@@ -135,8 +138,20 @@ export default function ChatPage() {
   return (
     <div className="page-stack chat-page">
       <BitPageHeader eyebrow="Chat" title="Ask your second brain" />
+      {loading ? <p>Loading...</p> : null}
+      {error ? <p className="error-text">{error}</p> : null}
       <BitCard className="chat-surface">
         <div className="message-list">
+          {!loading && messages.length === 0 ? (
+            <div className="message-row assistant">
+              <div className="message-bubble">
+                <span className="assistant-mark">
+                  <Sparkles size={14} />
+                </span>
+                <p>Ask me about your emails, Slack messages, commitments, or meeting context.</p>
+              </div>
+            </div>
+          ) : null}
           {messages.map((message) => (
             <div key={message._id} className={`message-row ${message.role}`}>
               <div className="message-bubble">
@@ -150,7 +165,7 @@ export default function ChatPage() {
                   <div className="source-chip-row">
                     {message.sources.slice(0, 5).map((source, index) => (
                       <BitChip key={source._id ?? source} onClick={() => window.location.assign(`/timeline?source=${source._id ?? source}`)}>
-                        Source {index + 1}
+                        {getSourceLabel(source, index)}
                       </BitChip>
                     ))}
                   </div>
@@ -179,4 +194,27 @@ export default function ChatPage() {
       </BitCard>
     </div>
   );
+}
+
+async function loadSourceDocuments(sourceDocumentIds) {
+  const documents = await Promise.all(
+    sourceDocumentIds.map(async (id) => {
+      try {
+        const response = await api.get(`/documents/${id}`);
+        return response.data.document ?? { _id: id };
+      } catch {
+        return { _id: id };
+      }
+    })
+  );
+
+  return documents;
+}
+
+function getSourceLabel(source, index) {
+  if (typeof source === "object" && source?.source) {
+    return source.source;
+  }
+
+  return `Source ${index + 1}`;
 }

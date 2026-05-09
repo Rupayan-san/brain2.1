@@ -1,6 +1,6 @@
 import Commitment from "../models/Commitment";
 import DocumentModel from "../models/Document";
-import { getOpenAIClient } from "../lib/openaiClient";
+import { getChatModel } from "../lib/geminiClient";
 
 interface FulfillmentResponse {
   fulfilled?: boolean;
@@ -78,26 +78,26 @@ export async function checkFulfillments(userId: string) {
 }
 
 async function checkSingleFulfillment(commitmentText: string, recentMessages: string) {
-  const completion = await getOpenAIClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "Was this commitment fulfilled based on recent messages? Reply JSON: {fulfilled: boolean}"
-      },
-      {
-        role: "user",
-        content: `Commitment:\n${commitmentText}\n\nRecent messages:\n${recentMessages || "No recent messages."}`
-      }
-    ]
-  });
-  const rawJson = completion.choices[0]?.message.content;
+  const model = getChatModel();
+  const result = await model.generateContent(
+    [
+      "Was this commitment fulfilled based on recent messages?",
+      "Reply JSON: {fulfilled: boolean}",
+      "",
+      `Commitment:\n${commitmentText}`,
+      "",
+      `Recent messages:\n${recentMessages || "No recent messages."}`
+    ].join("\n")
+  );
+  const rawJson = result.response.text();
 
   if (!rawJson) {
     return { fulfilled: false };
   }
 
-  return JSON.parse(rawJson) as FulfillmentResponse;
+  try {
+    return JSON.parse(rawJson) as FulfillmentResponse;
+  } catch {
+    return { fulfilled: false };
+  }
 }

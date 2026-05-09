@@ -9,7 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@langchain/openai": "latest",
+    "@google/generative-ai": "latest",
     "@slack/web-api": "latest",
     "bcryptjs": "latest",
     "chromadb": "latest",
@@ -21,7 +21,6 @@
     "langchain": "latest",
     "mongoose": "latest",
     "node-cron": "latest",
-    "openai": "latest",
     "socket.io": "latest"
   },
   "devDependencies": {

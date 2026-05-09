@@ -1,42 +1,77 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { GitFork, Search } from "lucide-react";
+import { GitFork } from "lucide-react";
 import api from "../services/api.js";
-import { fallbackDocuments } from "../services/mockData.js";
 import {
   BitChip,
   BitEmptyState,
   BitFeedItem,
-  BitInput,
   BitPageHeader,
   BitPanel
 } from "../components/ReactBits.jsx";
 
 export default function KnowledgeGraphPage() {
   const svgRef = useRef(null);
-  const [documents, setDocuments] = useState(fallbackDocuments);
+  const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [selectedNode, setSelectedNode] = useState(null);
-  const [query, setQuery] = useState("people topics decisions");
-  const graph = useMemo(() => buildGraph(documents), [documents]);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadGraphDocs() {
+    async function loadGraph() {
       try {
-        const response = await api.get("/search", { params: { q: query || "people topics decisions" } });
-
-        if (response.data.documents?.length) {
-          setDocuments(response.data.documents);
-        }
+        setLoading(true);
+        setError("");
+        const response = await api.get("/graph");
+        setGraph({
+          nodes: response.data.nodes ?? [],
+          edges: response.data.edges ?? []
+        });
       } catch {
-        setDocuments(fallbackDocuments);
+        setError("Unable to load knowledge graph.");
+      } finally {
+        setLoading(false);
       }
     }
 
-    loadGraphDocs();
-  }, [query]);
+    loadGraph();
+  }, []);
+
+  const simulationGraph = useMemo(() => {
+    return {
+      nodes: graph.nodes.map((node) => ({
+        ...node,
+        documentId: node.documentId ?? (node.type === "gmail" || node.type === "slack" ? node.id : undefined)
+      })),
+      links: graph.edges.map((edge) => ({ ...edge }))
+    };
+  }, [graph]);
 
   useEffect(() => {
-    if (!svgRef.current) {
+    if (!selectedNode?.documentId) {
+      setSelectedDocument(null);
+      return;
+    }
+
+    async function loadSelectedDocument() {
+      try {
+        setDocumentLoading(true);
+        const response = await api.get(`/documents/${selectedNode.documentId}`);
+        setSelectedDocument(response.data.document ?? null);
+      } catch {
+        setSelectedDocument(null);
+      } finally {
+        setDocumentLoading(false);
+      }
+    }
+
+    loadSelectedDocument();
+  }, [selectedNode]);
+
+  useEffect(() => {
+    if (!svgRef.current || loading || error) {
       return;
     }
 
@@ -45,9 +80,12 @@ export default function KnowledgeGraphPage() {
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
+    const simulationNodes = simulationGraph.nodes.map((node) => ({ ...node }));
+    const simulationLinks = simulationGraph.links.map((link) => ({ ...link }));
+
     const simulation = d3
-      .forceSimulation(graph.nodes.map((node) => ({ ...node })))
-      .force("link", d3.forceLink(graph.links).id((node) => node.id).distance(95))
+      .forceSimulation(simulationNodes)
+      .force("link", d3.forceLink(simulationLinks).id((node) => node.id).distance(95))
       .force("charge", d3.forceManyBody().strength(-260))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide().radius(36));
@@ -57,21 +95,21 @@ export default function KnowledgeGraphPage() {
       .attr("stroke", "#c7c1b3")
       .attr("stroke-width", 1)
       .selectAll("line")
-      .data(graph.links)
+      .data(simulationLinks)
       .join("line");
 
     const node = svg
       .append("g")
-      .selectAll("button")
-      .data(simulation.nodes())
+      .selectAll("g")
+      .data(simulationNodes)
       .join("g")
       .attr("class", "graph-node")
       .on("click", (_, datum) => setSelectedNode(datum));
 
     node
       .append("circle")
-      .attr("r", (datum) => (datum.kind === "decision" ? 19 : 15))
-      .attr("fill", (datum) => nodeColor(datum.kind));
+      .attr("r", (datum) => (datum.type === "gmail" || datum.type === "slack" ? 18 : 15))
+      .attr("fill", (datum) => nodeColor(datum.type));
 
     node
       .append("text")
@@ -90,96 +128,64 @@ export default function KnowledgeGraphPage() {
     });
 
     return () => simulation.stop();
-  }, [graph]);
-
-  const relatedDocuments = selectedNode
-    ? documents.filter((document) => selectedNode.documentIds.includes(document._id))
-    : documents.slice(0, 4);
+  }, [simulationGraph, loading, error]);
 
   return (
     <div className="page-stack">
-      <BitPageHeader
-        eyebrow="Knowledge graph"
-        title="People, topics, decisions"
-        action={
-          <BitInput
-            icon={Search}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search graph context"
-          />
-        }
-      />
-      <section className="graph-layout">
-        <BitPanel className="graph-canvas">
-          <svg ref={svgRef} role="img" aria-label="Knowledge graph" />
-        </BitPanel>
-        <BitPanel className="graph-inspector">
-          <div className="section-heading">
-            <GitFork size={18} />
-            <h2>{selectedNode ? selectedNode.label : "Related documents"}</h2>
-          </div>
-          {selectedNode ? (
-            <div className="chip-row">
-              <BitChip active>{selectedNode.kind}</BitChip>
+      <BitPageHeader eyebrow="Knowledge graph" title="People, topics, documents" />
+      {loading ? <p>Loading...</p> : null}
+      {error ? <p className="error-text">{error}</p> : null}
+
+      {!loading && !error ? (
+        <section className="graph-layout">
+          <BitPanel className="graph-canvas">
+            <svg ref={svgRef} role="img" aria-label="Knowledge graph" />
+          </BitPanel>
+          <BitPanel className="graph-inspector">
+            <div className="section-heading">
+              <GitFork size={18} />
+              <h2>{selectedNode ? selectedNode.label : "Select a node"}</h2>
             </div>
-          ) : null}
-          <div className="feed-list">
-            {relatedDocuments.length ? (
-              relatedDocuments.map((document) => (
-                <BitFeedItem key={document._id} title={document.summary} meta={document.source}>
-                  {(document.tags ?? []).join(", ")}
-                </BitFeedItem>
-              ))
+
+            {selectedNode ? (
+              <>
+                <div className="chip-row">
+                  <BitChip active>{selectedNode.type}</BitChip>
+                </div>
+                {documentLoading ? <p>Loading...</p> : null}
+                {selectedDocument ? (
+                  <div className="feed-list graph-document-preview">
+                    <BitFeedItem title={selectedDocument.summary || "Unsummarized document"} meta={selectedDocument.source}>
+                      {formatDate(selectedDocument.createdAt)}
+                    </BitFeedItem>
+                  </div>
+                ) : null}
+              </>
             ) : (
-              <BitEmptyState title="No linked documents">Try another graph query.</BitEmptyState>
+              <BitEmptyState title="No node selected">
+                Click a circle to inspect its label, type, and linked document summary.
+              </BitEmptyState>
             )}
-          </div>
-        </BitPanel>
-      </section>
+          </BitPanel>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function buildGraph(documents) {
-  const nodes = new Map();
-  const links = [];
-
-  const addNode = (id, label, kind, documentId) => {
-    const existing = nodes.get(id);
-
-    if (existing) {
-      existing.documentIds.push(documentId);
-      return existing;
-    }
-
-    const node = { id, label, kind, documentIds: [documentId] };
-    nodes.set(id, node);
-    return node;
-  };
-
-  documents.forEach((document) => {
-    const docNode = addNode(`doc:${document._id}`, "Document", "document", document._id);
-    const people = (document.entities ?? []).filter((entity) => entity.type === "person");
-    const topics = [
-      ...(document.tags ?? []).map((tag) => ({ name: tag, type: "topic" })),
-      ...(document.entities ?? []).filter((entity) => entity.type === "topic")
-    ];
-    const decisions = (document.actionItems ?? []).map((item) => ({ name: item, type: "decision" }));
-
-    [...people, ...topics, ...decisions].forEach((item) => {
-      const kind = item.type === "person" ? "person" : item.type === "decision" ? "decision" : "topic";
-      const node = addNode(`${kind}:${item.name}`, item.name, kind, document._id);
-      links.push({ source: docNode.id, target: node.id });
-    });
-  });
-
-  return { nodes: Array.from(nodes.values()), links };
+function nodeColor(type) {
+  if (type === "person") return "#2f75d6";
+  if (type === "topic") return "#2f8f5b";
+  if (type === "gmail") return "#c84e3a";
+  if (type === "slack") return "#7b4ec8";
+  return "#2d2b27";
 }
 
-function nodeColor(kind) {
-  if (kind === "person") return "#2f6f73";
-  if (kind === "decision") return "#b45f3c";
-  if (kind === "topic") return "#d8b64c";
-  return "#2d2b27";
+function formatDate(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }

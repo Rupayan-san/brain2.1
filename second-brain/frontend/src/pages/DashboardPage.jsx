@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Bell, Clock, FileText, Sparkles } from "lucide-react";
+import { Activity, Bell, Clock, FileText, Mail, MessageSquare, Sparkles } from "lucide-react";
 import api from "../services/api.js";
-import { fallbackDigest, fallbackDocuments, fallbackCommitments } from "../services/mockData.js";
 import useSocketFeed from "../hooks/useSocketFeed.js";
 import {
+  BitButton,
   BitCard,
+  BitEmptyState,
   BitFeedItem,
   BitMetric,
   BitPageHeader,
@@ -13,55 +14,78 @@ import {
 } from "../components/ReactBits.jsx";
 
 export default function DashboardPage() {
-  const [documents, setDocuments] = useState(fallbackDocuments);
-  const [digest, setDigest] = useState(fallbackDigest.daily);
+  const [documents, setDocuments] = useState([]);
+  const [digest, setDigest] = useState(null);
+  const [commitments, setCommitments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
   const socketFeed = useSocketFeed();
 
   useEffect(() => {
-    async function loadDashboard() {
-      try {
-        const [searchResponse, digestResponse] = await Promise.allSettled([
-          api.get("/search", { params: { q: "recent activity summary commitments" } }),
-          api.get("/digest", { params: { type: "daily" } })
-        ]);
-
-        if (searchResponse.status === "fulfilled" && searchResponse.value.data.documents?.length) {
-          setDocuments(searchResponse.value.data.documents);
-        }
-
-        if (digestResponse.status === "fulfilled" && digestResponse.value.data.digest) {
-          setDigest(digestResponse.value.data.digest);
-        }
-      } catch {
-        setDocuments(fallbackDocuments);
-      }
-    }
-
     loadDashboard();
   }, []);
 
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const [digestResponse, commitmentsResponse, documentsResponse] = await Promise.all([
+        api.get("/digest", { params: { type: "daily" } }),
+        api.get("/commitments"),
+        api.get("/documents", { params: { limit: 5 } })
+      ]);
+
+      setDigest(digestResponse.data.digest ?? null);
+      setCommitments(commitmentsResponse.data.commitments ?? []);
+      setDocuments(documentsResponse.data.documents ?? []);
+    } catch {
+      setError("Unable to load dashboard data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const syncNow = async () => {
+    try {
+      setSyncing(true);
+      setToast("");
+      setError("");
+      const response = await api.post("/ingest/trigger");
+      setToast(`Synced ${response.data.gmail} Gmail and ${response.data.slack} Slack messages`);
+      await loadDashboard();
+    } catch {
+      setError("Unable to sync messages.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const health = useMemo(() => getMemoryHealth(documents), [documents]);
-  const pendingCommitments = fallbackCommitments.filter((commitment) => !commitment.fulfilled).length;
-  const proactiveFeed = socketFeed.length
-    ? socketFeed
-    : [
-        {
-          id: "fallback-brief",
-          type: "meetingBrief",
-          createdAt: new Date().toISOString(),
-          payload: { brief: { meetingTitle: "Research review" } }
-        },
-        {
-          id: "fallback-loop",
-          type: "memory",
-          createdAt: new Date().toISOString(),
-          payload: { title: "Two open loops need attention" }
-        }
-      ];
+  const pendingCommitments = commitments.filter((commitment) => !commitment.fulfilled).length;
+
+  if (loading) {
+    return <p>Loading...</p>;
+  }
+
+  if (error) {
+    return <p className="error-text">{error}</p>;
+  }
 
   return (
     <div className="page-stack">
-      <BitPageHeader eyebrow="Dashboard" title="Memory health" />
+      <BitPageHeader
+        eyebrow="Dashboard"
+        title="Memory health"
+        action={
+          <BitButton onClick={syncNow} disabled={syncing}>
+            {syncing ? "Syncing..." : "Sync now"}
+          </BitButton>
+        }
+      />
+      {toast ? <div className="toast-success">{toast}</div> : null}
 
       <section className="dashboard-grid">
         <BitPanel className="health-panel">
@@ -70,7 +94,7 @@ export default function DashboardPage() {
             <p>summarized memory</p>
           </div>
           <div className="metric-row">
-            <BitMetric label="Items with summaries" value={`${health.summarized}/${health.total}`} detail="indexed documents" tone="good" />
+            <BitMetric label="Items with summaries" value={`${health.summarized}/${health.total}`} detail="latest documents" tone="good" />
             <BitMetric label="Pending commitments" value={pendingCommitments} detail="needs follow-up" tone="warn" />
             <BitMetric label="Stale items" value={health.stale} detail="older than 7 days" />
           </div>
@@ -81,7 +105,7 @@ export default function DashboardPage() {
             <Sparkles size={18} />
             <h2>Daily digest</h2>
           </div>
-          <p>{digest.narrative}</p>
+          <p>{digest?.narrative || "No digest generated yet."}</p>
         </BitCard>
       </section>
 
@@ -92,18 +116,24 @@ export default function DashboardPage() {
             <h2>Proactive surfacing</h2>
           </div>
           <div className="feed-list">
-            {proactiveFeed.map((item) => (
-              <BitFeedItem
-                key={item.id}
-                icon={item.type === "meetingBrief" ? Clock : Activity}
-                title={item.payload?.brief?.meetingTitle || item.payload?.title || "Live memory update"}
-                meta={formatTime(item.createdAt)}
-              >
-                {item.type === "meetingBrief"
-                  ? "A meeting brief is ready from calendar context."
-                  : "A relevant thread surfaced from your workspace."}
-              </BitFeedItem>
-            ))}
+            {socketFeed.length ? (
+              socketFeed.map((item) => (
+                <BitFeedItem
+                  key={item.id}
+                  icon={item.type === "meetingBrief" ? Clock : Activity}
+                  title={item.payload?.brief?.meetingTitle || item.payload?.title || "Live memory update"}
+                  meta={formatTime(item.createdAt)}
+                >
+                  {item.type === "meetingBrief"
+                    ? "A meeting brief is ready from calendar context."
+                    : "A relevant thread surfaced from your workspace."}
+                </BitFeedItem>
+              ))
+            ) : (
+              <BitEmptyState title="No proactive updates yet">
+                Socket.io cards will appear here when the backend emits them.
+              </BitEmptyState>
+            )}
           </div>
         </BitPanel>
 
@@ -113,18 +143,26 @@ export default function DashboardPage() {
             <h2>Recent activity</h2>
           </div>
           <div className="feed-list">
-            {documents.slice(0, 6).map((document) => (
-              <BitFeedItem
-                key={document._id}
-                icon={FileText}
-                title={document.summary || "Unsummarized item"}
-                meta={formatTime(document.createdAt)}
-              >
-                <BitStatus tone={document.source === "gmail" ? "mail" : "slack"}>
-                  {document.source}
-                </BitStatus>
-              </BitFeedItem>
-            ))}
+            {documents.length ? (
+              documents.map((document) => {
+                const Icon = document.source === "gmail" ? Mail : MessageSquare;
+
+                return (
+                  <BitFeedItem
+                    key={document._id}
+                    icon={Icon}
+                    title={document.summary || "Unsummarized item"}
+                    meta={formatTime(document.createdAt)}
+                  >
+                    <BitStatus tone={document.source === "gmail" ? "mail" : "slack"}>
+                      {document.source}
+                    </BitStatus>
+                  </BitFeedItem>
+                );
+              })
+            ) : (
+              <BitEmptyState title="No documents yet">Connect Gmail or Slack to start ingestion.</BitEmptyState>
+            )}
           </div>
         </BitPanel>
       </section>
@@ -133,7 +171,7 @@ export default function DashboardPage() {
 }
 
 function getMemoryHealth(documents) {
-  const total = documents.length || 1;
+  const total = documents.length;
   const summarized = documents.filter((document) => Boolean(document.summary)).length;
   const stale = documents.filter((document) => {
     return new Date(document.createdAt).getTime() < Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -143,7 +181,7 @@ function getMemoryHealth(documents) {
     total,
     summarized,
     stale,
-    score: Math.round((summarized / total) * 100)
+    score: total === 0 ? 0 : Math.round((summarized / total) * 100)
   };
 }
 
