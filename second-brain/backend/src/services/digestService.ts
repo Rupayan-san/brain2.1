@@ -1,6 +1,6 @@
 import Digest from "../models/Digest";
 import DocumentModel from "../models/Document";
-import { getChatModel } from "../lib/geminiClient";
+import { getIngestionModel } from "../lib/geminiClient";
 
 export async function dailyDigest(userId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -28,7 +28,7 @@ async function createDigest(
   const sourceText = documents
     .map((document) => `- ${document.summary || document.rawContent}`)
     .join("\n");
-  const model = getChatModel();
+  const model = getIngestionModel();
   const result = await model.generateContent(
     `${prompt}\n\nSummaries:\n${sourceText || "No documents were found for this period."}`
   );

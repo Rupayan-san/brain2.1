@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../services/api.js";
 import { BitChip, BitPageHeader, BitPanel } from "../components/ReactBits.jsx";
 
@@ -9,22 +10,30 @@ const filters = [
 ];
 
 export default function TimelinePage() {
+  const [searchParams] = useSearchParams();
+  const selectedDocumentId = searchParams.get("document");
   const [documents, setDocuments] = useState([]);
   const [sourceFilter, setSourceFilter] = useState(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadTimeline(sourceFilter);
-  }, [sourceFilter]);
+    loadTimeline(sourceFilter, selectedDocumentId);
+  }, [sourceFilter, selectedDocumentId]);
 
-  const loadTimeline = async (source) => {
+  const loadTimeline = async (source, documentId) => {
     try {
       setLoading(true);
       setError("");
       const params = source ? { source, limit: 100 } : { limit: 100 };
-      const response = await api.get("/documents", { params });
-      setDocuments(response.data.documents ?? []);
+      const [timelineResponse, selectedResponse] = await Promise.all([
+        api.get("/documents", { params }),
+        documentId ? api.get(`/documents/${documentId}`).catch(() => null) : Promise.resolve(null)
+      ]);
+      const timelineDocuments = timelineResponse.data.documents ?? [];
+      const selectedDocument = selectedResponse?.data?.document;
+
+      setDocuments(mergeSelectedDocument(timelineDocuments, selectedDocument));
     } catch {
       setError("Unable to load timeline.");
     } finally {
@@ -57,7 +66,10 @@ export default function TimelinePage() {
               .slice()
               .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt))
               .map((document) => (
-                <article className="timeline-entry" key={document._id}>
+                <article
+                  className={`timeline-entry ${document._id === selectedDocumentId ? "is-selected" : ""}`}
+                  key={document._id}
+                >
                   <div className={`timeline-dot timeline-dot-${document.source}`} />
                   <div>
                     <time>{formatDate(document.createdAt)}</time>
@@ -76,6 +88,14 @@ export default function TimelinePage() {
       </BitPanel>
     </div>
   );
+}
+
+function mergeSelectedDocument(documents, selectedDocument) {
+  if (!selectedDocument?._id || documents.some((document) => document._id === selectedDocument._id)) {
+    return documents;
+  }
+
+  return [selectedDocument, ...documents];
 }
 
 function formatDate(value) {

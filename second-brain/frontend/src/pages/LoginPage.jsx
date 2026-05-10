@@ -4,6 +4,8 @@ import { API_BASE_URL, getToken } from "../services/api.js";
 import { BitButton, BitCard } from "../components/ReactBits.jsx";
 
 export default function LoginPage() {
+  const hasToken = Boolean(getToken());
+
   const connectGoogle = () => {
     window.location.href = `${API_BASE_URL}/auth/google`;
   };
@@ -38,9 +40,11 @@ export default function LoginPage() {
             Connect Slack
           </BitButton>
         </div>
-        <Link className="login-skip" to="/">
-          Continue to dashboard
-        </Link>
+        {hasToken ? (
+          <Link className="login-skip" to="/">
+            Continue to dashboard
+          </Link>
+        ) : null}
       </BitCard>
     </main>
   );

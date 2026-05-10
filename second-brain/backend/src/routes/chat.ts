@@ -24,11 +24,13 @@ router.post("/chat/message", authenticateJwt, async (req, res, next) => {
 
     res.end();
   } catch (error) {
+    console.error("Chat streaming error:", error);
     if (!res.headersSent) {
       next(error);
       return;
     }
 
+    res.write("\\n\\n[Error: Google Gemini AI returned 'Too Many Requests'. You have hit your Free Tier API rate limit!]");
     res.end();
   }
 });

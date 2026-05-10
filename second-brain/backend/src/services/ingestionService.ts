@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { google, gmail_v1 } from "googleapis";
 import { WebClient } from "@slack/web-api";
 import { getOrCreateDocumentCollection } from "../lib/chromaClient";
-import { getChatModel, getEmbeddingModel } from "../lib/geminiClient";
+import { getIngestionModel, getEmbeddingModel } from "../lib/geminiClient";
 import { detectConflicts } from "./conflictService";
 import { extractCommitments } from "./commitmentService";
 import DocumentModel from "../models/Document";
@@ -102,6 +102,7 @@ export async function fetchGmailMessages(userId: string) {
     });
 
     savedDocuments.push(document);
+    await new Promise(resolve => setTimeout(resolve, 13000));
   }
 
   return savedDocuments;
@@ -162,6 +163,7 @@ export async function fetchSlackMessages(userId: string) {
       });
 
       savedDocuments.push(document);
+      await new Promise(resolve => setTimeout(resolve, 13000));
     }
   }
 
@@ -217,7 +219,7 @@ export async function enrichDocument(
 }
 
 async function getEnrichment(content: string) {
-  const model = getChatModel();
+  const model = getIngestionModel();
   const result = await model.generateContent({
     contents: [
       {

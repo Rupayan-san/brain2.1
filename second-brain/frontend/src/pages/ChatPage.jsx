@@ -11,7 +11,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const streamingIdRef = useRef(null);
-  const sawSocketTokenRef = useRef(false);
+  const activeAssistantIdRef = useRef(null);
 
   useEffect(() => {
     async function loadHistory() {
@@ -33,30 +33,37 @@ export default function ChatPage() {
   useEffect(() => {
     const socket = getSocket();
 
-    const handleToken = ({ token }) => {
-      sawSocketTokenRef.current = true;
-      appendToStreamingMessage(token);
-    };
-
     const handleEnd = async ({ sourceDocumentIds = [] }) => {
+      const targetMessageId = streamingIdRef.current ?? activeAssistantIdRef.current;
+
+      if (!targetMessageId) {
+        return;
+      }
+
       const sources = await loadSourceDocuments(sourceDocumentIds);
 
       setMessages((current) =>
         current.map((message) =>
-          message._id === streamingIdRef.current
+          message._id === targetMessageId
             ? { ...message, sources }
             : message
         )
       );
-      streamingIdRef.current = null;
+
+      if (streamingIdRef.current === targetMessageId) {
+        streamingIdRef.current = null;
+      }
+
+      if (activeAssistantIdRef.current === targetMessageId) {
+        activeAssistantIdRef.current = null;
+      }
+
       setIsStreaming(false);
     };
 
-    socket.on("chat:token", handleToken);
     socket.on("chat:stream:end", handleEnd);
 
     return () => {
-      socket.off("chat:token", handleToken);
       socket.off("chat:stream:end", handleEnd);
     };
   }, []);
@@ -77,7 +84,7 @@ export default function ChatPage() {
     };
 
     streamingIdRef.current = assistantId;
-    sawSocketTokenRef.current = false;
+    activeAssistantIdRef.current = assistantId;
     setDraft("");
     setIsStreaming(true);
     setMessages((current) => [
@@ -88,11 +95,17 @@ export default function ChatPage() {
 
     try {
       setError("");
+      const token = getToken();
+
+      if (!token) {
+        throw new Error("Missing authentication token");
+      }
+
       const response = await fetch(`${API_BASE_URL}/chat/message`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
           query,
@@ -100,8 +113,8 @@ export default function ChatPage() {
         })
       });
 
-      if (!response.body) {
-        return;
+      if (!response.ok || !response.body) {
+        throw new Error("Chat request failed");
       }
 
       const reader = response.body.getReader();
@@ -114,13 +127,22 @@ export default function ChatPage() {
           break;
         }
 
-        if (!sawSocketTokenRef.current) {
-          appendToStreamingMessage(decoder.decode(value, { stream: true }));
-        }
+        appendToStreamingMessage(decoder.decode(value, { stream: true }));
+      }
+
+      const finalToken = decoder.decode();
+
+      if (finalToken) {
+        appendToStreamingMessage(finalToken);
       }
     } catch {
       setError("Unable to send chat message.");
       appendToStreamingMessage("I could not reach the backend chat service.");
+    } finally {
+      if (streamingIdRef.current === assistantId) {
+        streamingIdRef.current = null;
+      }
+
       setIsStreaming(false);
     }
   };
@@ -164,7 +186,7 @@ export default function ChatPage() {
                 {message.role === "assistant" && message.sources?.length ? (
                   <div className="source-chip-row">
                     {message.sources.slice(0, 5).map((source, index) => (
-                      <BitChip key={source._id ?? source} onClick={() => window.location.assign(`/timeline?source=${source._id ?? source}`)}>
+                      <BitChip key={source._id ?? source} onClick={() => window.location.assign(`/timeline?document=${encodeURIComponent(source._id ?? source)}`)}>
                         {getSourceLabel(source, index)}
                       </BitChip>
                     ))}

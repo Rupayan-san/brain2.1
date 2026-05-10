@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { CHROMA_DOCUMENT_COLLECTION, getChromaClient } from "../lib/chromaClient";
-import { getChatModel } from "../lib/geminiClient";
+import { getIngestionModel } from "../lib/geminiClient";
 import DocumentModel, { DocumentDocument } from "../models/Document";
 
 interface ConflictResponse {
@@ -58,7 +58,7 @@ export async function detectConflicts(newDoc: DocumentDocument) {
 }
 
 async function compareDocuments(firstText: string, secondText: string) {
-  const model = getChatModel();
+  const model = getIngestionModel();
   const result = await model.generateContent(
     [
       "Do these two texts contradict each other on any fact?",

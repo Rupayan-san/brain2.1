@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@chroma-core/default-embed": "^0.1.9",
     "@google/generative-ai": "latest",
     "@slack/web-api": "latest",
     "bcryptjs": "latest",

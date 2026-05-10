@@ -1,6 +1,6 @@
 import cors from "cors";
 import dotenv from "dotenv";
-import express from "express";
+import express, { ErrorRequestHandler } from "express";
 import mongoose from "mongoose";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
@@ -44,6 +44,25 @@ app.use("/", commitmentRoutes);
 app.use("/", documentRoutes);
 app.use("/", graphRoutes);
 app.use("/", ingestRoutes);
+
+app.use((_req, res) => {
+  res.status(404).json({ message: "Route not found" });
+});
+
+const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+  const message = error instanceof Error ? error.message : "Unexpected server error";
+  const normalizedMessage = message.toLowerCase();
+  const status =
+    normalizedMessage.includes("not configured") || normalizedMessage.includes("missing")
+      ? 400
+      : 500;
+
+  res.status(status).json({
+    message: status === 500 ? "Unexpected server error" : message
+  });
+};
+
+app.use(errorHandler);
 
 io.on("connection", (socket) => {
   socket.emit("connected", { socketId: socket.id });

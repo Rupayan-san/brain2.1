@@ -16,7 +16,8 @@ export function getChromaClient() {
 export async function getOrCreateDocumentCollection() {
   const client = getChromaClient();
   return await client.getOrCreateCollection({
-    name: CHROMA_DOCUMENT_COLLECTION
+    name: CHROMA_DOCUMENT_COLLECTION,
+    embeddingFunction: { generate: async () => [] }
   });
 }
 

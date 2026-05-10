@@ -44,6 +44,7 @@ SLACK_CLIENT_SECRET=
 SLACK_REDIRECT_URI=http://localhost:5000/auth/slack/callback
 JWT_SECRET=
 CHROMA_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:5173
 PORT=5000
 ```
 

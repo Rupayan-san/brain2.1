@@ -1,6 +1,6 @@
 import Commitment from "../models/Commitment";
 import DocumentModel from "../models/Document";
-import { getChatModel } from "../lib/geminiClient";
+import { getIngestionModel } from "../lib/geminiClient";
 
 interface FulfillmentResponse {
   fulfilled?: boolean;
@@ -78,7 +78,7 @@ export async function checkFulfillments(userId: string) {
 }
 
 async function checkSingleFulfillment(commitmentText: string, recentMessages: string) {
-  const model = getChatModel();
+  const model = getIngestionModel();
   const result = await model.generateContent(
     [
       "Was this commitment fulfilled based on recent messages?",

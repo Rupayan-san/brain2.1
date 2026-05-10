@@ -119,10 +119,9 @@ function buildGeminiPrompt(
     .map((document, index) =>
       [
         `Source ${index + 1}`,
-        `Document ID: ${document._id.toString()}`,
         `Source type: ${document.source}`,
         `Summary: ${document.summary || "No summary available."}`,
-        `Text: ${document.rawContent}`
+        `Key info: ${document.rawContent.substring(0, 500)}...`
       ].join("\n")
     )
     .join("\n\n");

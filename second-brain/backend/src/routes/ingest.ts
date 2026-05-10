@@ -7,10 +7,8 @@ const router = Router();
 router.post("/ingest/trigger", authenticateJwt, async (req, res, next) => {
   try {
     const userId = getAuthenticatedUserId(req);
-    const [gmailDocs, slackDocs] = await Promise.all([
-      fetchGmailMessages(userId),
-      fetchSlackMessages(userId)
-    ]);
+    const gmailDocs = await fetchGmailMessages(userId).catch(e => { console.error("Gmail sync failed", e); return []; });
+    const slackDocs = await fetchSlackMessages(userId).catch(e => { console.error("Slack sync failed", e); return []; });
 
     res.json({
       message: "Ingestion complete",

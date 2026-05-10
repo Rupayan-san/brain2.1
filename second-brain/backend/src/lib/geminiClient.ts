@@ -18,12 +18,18 @@ export function getGeminiClient() {
 
 export function getChatModel() {
   return getGeminiClient().getGenerativeModel({
-    model: "gemini-1.5-flash"
+    model: "gemini-2.0-flash"
+  });
+}
+
+export function getIngestionModel() {
+  return getGeminiClient().getGenerativeModel({
+    model: "gemini-2.0-flash-lite"
   });
 }
 
 export function getEmbeddingModel() {
   return getGeminiClient().getGenerativeModel({
-    model: "embedding-001"
+    model: "gemini-embedding-2"
   });
 }

@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "./components/Sidebar.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
@@ -8,17 +8,23 @@ import KnowledgeGraphPage from "./pages/KnowledgeGraphPage.jsx";
 import TimelinePage from "./pages/TimelinePage.jsx";
 import CommitmentsPage from "./pages/CommitmentsPage.jsx";
 import DigestPage from "./pages/DigestPage.jsx";
-import { saveTokenFromUrl } from "./services/api.js";
+import { getToken, saveTokenFromUrl } from "./services/api.js";
 
 function AppShell({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [hasSession, setHasSession] = useState(() => saveTokenFromUrl() || Boolean(getToken()));
 
   useEffect(() => {
     if (saveTokenFromUrl()) {
+      setHasSession(true);
       navigate(location.pathname, { replace: true });
     }
   }, [location.pathname, navigate]);
+
+  if (!hasSession) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
   return (
     <div className="app-shell">
